@@ -1,9 +1,14 @@
 import torch
+import os
+import sys
 
-from utils import equals, torch_vec, torch_unvec, torch_commutation_matrix
-from utils import get_DFpqmn, from_DFpqmn_to_DF, from_dict_to_matrix
-from utils import from_dict_to_matrix, get_hessian_loop
+current_dir = os.path.dirname(__file__)  # current script's directory
+parent_dir = os.path.join(current_dir, '..')  # parent directory
+sys.path.append(parent_dir) 
 from utils import MIN_SIZE_CSR, activations_functions
+from utils import equals, torch_vec, torch_unvec, torch_commutation_matrix
+
+from utils2layers import from_dict_to_matrix, get_hessian_loop
 
 ####################################################################
 # Forward
@@ -254,6 +259,7 @@ g, dg, ddg = act["g"], act["dg"], act["ddg"]
 
 decimals = 4
 n, p, d, c = 5, 4, 3, 2
+n, p, d, c = 1, 4, 3, 2
 alpha = 0.7
 beta = 0.5
 gamma_V, gamma_W, gamma_X = 1.0, 1.0, 1.0

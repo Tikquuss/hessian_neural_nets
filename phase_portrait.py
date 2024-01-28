@@ -143,5 +143,5 @@ m = 200j
 # define the grid on which to plot the vectorfield here: a grid of m x m points between a and b
 dY, dX = np.mgrid[a:b:m, a:b:m] # (m, m) and (m, m)
 
-dXdt, dYdt, S = flow_4(dX, dY)
+dXdt, dYdt, S = flow_3(dX, dY)
 plot_flow(dX, dY, dXdt, dYdt, S=S)
