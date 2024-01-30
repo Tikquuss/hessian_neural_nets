@@ -54,26 +54,13 @@ hat_Ygrad = hat_Y.grad.detach()
 Vgrad = V.grad.detach()
 
 ######### Gradient Y
-
 dhat_Y = -(1/n) * Delta * (margins>=0 if q==1 else max_margins) # (n, c)
 if q==2 : dhat_Y.retain_grad() # for Hess(Y)
 print(equals(hat_Ygrad, dhat_Y, dec=decimals))#, "\n", hat_Ygrad,"\n", dhat_Y,"\n")
 
 ######### Gradient V
-
 dV = -(beta/n) * ( Delta * (margins>=0 if q==1 else max_margins) ).T @ X + gamma*V
 print(equals(Vgrad, dV, dec=decimals))#, "\n", Vgrad,"\n", dV,"\n")
-
-######### Hessian V
-
-Ic = torch.eye(c).to(device)
-Hess_V = gamma*torch.eye(c*d).to(device)
-if q==2 : Hess_V += (beta**2/n) * torch.kron(X, Ic).T @ torch.diag(torch_vec(1.0*(margins.T>=0))) @ torch.kron(X, Ic)  # (cd, cd)
-DF1 = from_DF_to_DFpqmn(DF=Hess_V, m=c, n=d, p=c, q=d)
-
-V.grad.zero_()
-DF2 = get_DFpqmn(F=dV, X=V, p=c, q=d)
-print(equals(DF1, DF2, dec=decimals))#, "\n", DF1,"\n", DF2,"\n")
 
 ######### Hessian Y
 if q==1: exit()
@@ -86,3 +73,14 @@ DFYY1 = from_DF_to_DFpqmn(DF=Hess_Y, m=n, n=c, p=n, q=c) # (n, c, n, c)
 hat_Y.grad.zero_()
 DFYY2 = get_DFpqmn(F=dhat_Y, X=hat_Y, p=n, q=c) # (n, c, n, c)
 print(equals(DFYY1, DFYY2, dec=decimals))#, "\n", DFYY1,"\n", DFYY2,"\n")
+
+######### Hessian V
+
+Ic = torch.eye(c).to(device)
+Hess_V = gamma*torch.eye(c*d).to(device)
+if q==2 : Hess_V += (beta**2) * torch.kron(X, Ic).T @ Hess_YT @ torch.kron(X, Ic)  # (cd, cd)
+DF1 = from_DF_to_DFpqmn(DF=Hess_V, m=c, n=d, p=c, q=d)
+
+V.grad.zero_()
+DF2 = get_DFpqmn(F=dV, X=V, p=c, q=d)
+print(equals(DF1, DF2, dec=decimals))#, "\n", DF1,"\n", DF2,"\n")
