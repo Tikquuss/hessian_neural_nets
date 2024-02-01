@@ -1,3 +1,4 @@
+import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.distributions.empirical_distribution import ECDF
 

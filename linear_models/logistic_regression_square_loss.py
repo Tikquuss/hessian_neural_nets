@@ -19,7 +19,7 @@ decimals=5
 decimals=3
 
 ######### Hyperparams
-n, d, c = 3, 5, 4 #  number of samples, input dim, output dim
+n, d, c = 2, 2, 2 #  number of samples, input dim, output dim
 beta = 0.7 # temperature
 tau = 0.5 # uniform regularizer strengths (noise)
 gamma = 0.5 # l2 regularization
@@ -39,6 +39,7 @@ hat_Y.retain_grad() # for Grad(Y)
 #hat_P = torch.softmax(hat_Y, dim=1)
 One_cc = torch.ones(c, c).to(device) # (c, c)
 hat_P = hat_Y.exp() / (hat_Y.exp() @ One_cc) # (n, c)
+hat_P.retain_grad() # for Grad(P)
 Delta_P = hat_P-P # (n, c)
 
 ######### Loss
@@ -62,16 +63,30 @@ print(equals(hat_Ygrad, dhat_Y, dec=decimals))#, "\n", hat_Ygrad,"\n", dhat_Y,"\
 dV = beta * dhat_Y.T @ X + gamma*V
 print(equals(Vgrad, dV, dec=decimals))#, "\n", Vgrad,"\n", dV,"\n")
 
-######### Hessian Y
+######### Gradient PT wrt to YT (B)
 Inc = torch.eye(n*c).to(device)
 In = torch.eye(n).to(device)
 diag_vec_hatPT = torch.diag(torch_vec(hat_P.T)) 
-B = diag_vec_hatPT @ ( Inc - torch.kron(In, One_cc) @ diag_vec_hatPT )
-H1 = B @ torch.diag(  torch_vec( (Delta_P - (Delta_P * hat_P)@One_cc).T )  )
-H2 = diag_vec_hatPT @ ( B - torch.kron(In, One_cc) @ ( B @ diag_vec_hatPT + torch.diag(torch_vec(Delta_P.T)) @ B )  )
-Hess_YT = (1/n*c) * (H1 + H2)
-# Hess(Y^T) = K(n,c) @ Hess_(Y) @ K(c,n)
+B = diag_vec_hatPT @ ( Inc - torch.kron(In, One_cc) @ diag_vec_hatPT ) # dhatPT_dhatYT
+# dhatPT_dhatYT = K(n,c) @ dhatP_dhatY @ K(c,n)
 Knc = torch_commutation_matrix(n, c, min_size_csr=10000) + 0.0
+dhatP_dhatY = Knc.T @ B @ Knc
+DFPY1 = from_DF_to_DFpqmn(DF=dhatP_dhatY, m=n, n=c, p=n, q=c) # (n, c, n, c)
+
+hat_Y.grad.zero_()
+DFPY2 = get_DFpqmn(F=hat_P, X=hat_Y, p=n, q=c) # (n, c, n, c)
+print(equals(DFPY1, DFPY2, dec=decimals))#, "\n", DFPY1,"\n", DFPY2,"\n")
+
+######### Hessian Y
+# H1 = torch.diag(  torch_vec( (Delta_P - (Delta_P * hat_P)@One_cc).T )  ) @ B # (nc, nc) x (nc, nc) = (n, c)
+# H2 = diag_vec_hatPT @ ( B - torch.kron(In, One_cc) @ ( diag_vec_hatPT @ B + torch.diag(torch_vec(Delta_P.T)) @ B )  )
+# Hess_YT = (1/(n*c)) * (H1 + H2)
+
+H1 = torch.diag(  torch_vec( (Delta_P - (Delta_P * hat_P)@One_cc).T )  )
+H2 = diag_vec_hatPT @ torch.kron(In, One_cc) @ torch.diag(torch_vec(Delta_P.T))
+Hess_YT = (1/(n*c)) * (H1 + B - H2) @ B
+
+# Hess(Y^T) = K(n,c) @ Hess_(Y) @ K(c,n)
 Hess_Y = Knc.T @ Hess_YT @ Knc
 DFYY1 = from_DF_to_DFpqmn(DF=Hess_Y, m=n, n=c, p=n, q=c) # (n, c, n, c)
 
@@ -86,4 +101,4 @@ DF1 = from_DF_to_DFpqmn(DF=Hess_V, m=c, n=d, p=c, q=d)
 
 V.grad.zero_()
 DF2 = get_DFpqmn(F=dV, X=V, p=c, q=d) #
-print(equals(DF1, DF2, dec=decimals))#, "\n", DF1,"\n", DF2,"\n")
+#print(equals(DF1, DF2, dec=decimals))#, "\n", DF1,"\n", DF2,"\n")

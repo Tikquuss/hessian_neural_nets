@@ -18,7 +18,7 @@ device = "cpu"
 decimals=5
 
 ######### Hyperparams
-n, d = 3, 5 #  number of samples, input dim, output dim
+n, d, c = 3, 5, 4 #  number of samples, input dim, output dim
 beta = 0.7 # temperature
 # tau = 0.5 # uniform regularizer strengths (noise)
 gamma = 0.5 # l2 regularization

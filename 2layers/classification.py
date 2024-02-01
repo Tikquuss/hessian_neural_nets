@@ -1,9 +1,20 @@
 import torch
+import os
+import sys
 
-from utils import equals, torch_vec, torch_unvec, torch_commutation_matrix
-from utils import get_DFpqmn, from_DFpqmn_to_DF, from_dict_to_matrix
-from utils import from_dict_to_matrix, get_hessian_loop
+current_dir = os.path.dirname(__file__)  # current script's directory
+parent_dir = os.path.join(current_dir, '..')  # parent directory
+sys.path.append(parent_dir) 
+
+# from utils import equals, torch_vec, torch_unvec, torch_commutation_matrix
+# from utils import get_DFpqmn, from_DFpqmn_to_DF, from_dict_to_matrix
+# from utils import from_dict_to_matrix, get_hessian_loop
+# from utils import MIN_SIZE_CSR, activations_functions
+
 from utils import MIN_SIZE_CSR, activations_functions
+from utils import equals, torch_vec, torch_unvec, torch_commutation_matrix
+
+from utils2layers import from_dict_to_matrix, get_hessian_loop
 
 ####################################################################
 # Forward
@@ -280,6 +291,49 @@ hat_P = hat_Y.exp() / (hat_Y.exp() @ One_cc) # (n, c)
 Delta_P = hat_P-P # (n, c)
 Psi = ((beta * alpha)/n) * (dg(H) * (Delta_P@V))
 
+##################################################################
+##################################################################
+
+#device = "cuda" if torch.cuda.is_available() else "cpu"
+device = W.device
+
+Inc = torch.eye(n*c)
+Ic = torch.eye(c)
+In = torch.eye(n)
+Id = torch.eye(d)
+
+Inc = torch.eye(n*c).to(device)
+In = torch.eye(n).to(device)
+diag_vec_hatPT = torch.diag(torch_vec(hat_P.T)) 
+Hess_YT = (1/n) * diag_vec_hatPT @ ( Inc - torch.kron(In, One_cc) @ diag_vec_hatPT )
+QV = beta * torch.kron(A, Ic)
+QW = alpha * beta * torch.kron(In, V) @ torch.diag(torch_vec(dg(H.T))) @ torch.kron(X, Id)
+
+print(QV.shape, QW.shape, Hess_YT.shape)
+
+GVV = QV.T @ Hess_YT @ QV # (cd, nc)(nc, nc)(nc, cd) = (cd, cd)
+GWV = QW.T @ Hess_YT @ QV # (pd, nc)(nc, nc)(nc, cd) = (pd, cd)
+GWW = QW.T @ Hess_YT @ QW # (pd, nc)(nc, nc)(nc, pd) = (pd, pd)
+
+print(GVV.shape, GWV.shape, GWW.shape)
+
+require_grad = {"V":True, "W":True, "X":False}
+hess_dict = {"HVV" : GVV, "HVW" : GWV.T, "HWV" : GWV, "HWW" : GWW}
+Hess = from_dict_to_matrix(require_grad, hess_dict, n, p, c, d, device=W.device, dtype=torch.float64)
+
+from plotter import plot_cdf
+import matplotlib.pyplot as plt
+Lambda = torch.linalg.eigvalsh(Hess.detach())
+plt.hist(Lambda)
+#_ = plot_cdf(Lambda)
+print(Lambda)
+plt.show()
+
+exit()
+
+##################################################################
+##################################################################
+
 # Gradient
 grad = get_gradients(require_grad, V, X, W, Psi, A, Delta_P, beta, gamma_V, gamma_W, gamma_X)
 
@@ -294,9 +348,9 @@ Wgrad = W.grad.detach()
 Xgrad = X.grad.detach()
 
 # print(equals(hat_Ygrad, Delta_P/n, dec=decimals), "\n", hat_Ygrad,"\n", Delta_P/n,"\n")
-print(equals(Vgrad, grad["dV"], dec=decimals), "\n", Vgrad,"\n", grad["dV"],"\n")
-print(equals(Wgrad, grad["dW"], dec=decimals), "\n", Wgrad,"\n", grad["dW"],"\n")
-print(equals(Xgrad, grad["dX"], dec=decimals), "\n", Xgrad, "\n", grad["dX"],"\n")
+print(equals(Vgrad, grad["dV"], dec=decimals))#, "\n", Vgrad,"\n", grad["dV"],"\n")
+print(equals(Wgrad, grad["dW"], dec=decimals))#, "\n", Wgrad,"\n", grad["dW"],"\n")
+print(equals(Xgrad, grad["dX"], dec=decimals))#, "\n", Xgrad, "\n", grad["dX"],"\n")
 
 # Hessian
 

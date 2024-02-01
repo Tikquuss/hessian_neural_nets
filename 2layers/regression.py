@@ -245,6 +245,85 @@ def get_hessian_T(require_grad, dV, dWT, dX, V, WT, X, Psi, Delta_Y, dg, ddg, al
     return hess_dict
 
 
+# BEGIN TODO
+import numpy as np
+from scipy.linalg import det as scipy_det, pinv as scipy_pinv
+from scipy.sparse import identity as scipy_eyes, diags as scipy_diag, kron as scipy_kron
+from scipy.sparse.linalg import inv as scipy_inv, eigs as scipy_eigs
+from scipy.sparse import csr_matrix
+
+from utils import np_vec, np_unvec, np_commutation_matrix
+
+def get_hessian_np(require_grad, P, P_start, A, H, V, W, X, beta, dg, ddg, gamma_V, gamma_W, dtype=np.float64):
+    """
+    P_start, P : (n, c)
+    A, H : (n, d)
+    V : (c, d)
+    W : (d, p)
+    X : (n, p)
+    """
+    c, d = V.shape
+    p = W.shape[1]
+    n = X.shape[0]
+
+    device = W.device
+    P = P.detach().cpu().numpy() 
+    P_start = P_start.detach().cpu().numpy() 
+    A = A.detach().cpu().numpy() 
+    H = H.detach().cpu().numpy() 
+    V = V.detach().cpu().numpy() 
+    W = W.detach().cpu().numpy() 
+    X = X.detach().cpu().numpy() 
+
+    ####################
+    q=c*d*require_grad.get("V", False) + d*p*require_grad.get("W", False) 
+    Hess = np.empty((q, q), dtype=dtype)
+    ####################
+
+    One_cc = np.ones((c, c))
+    In = scipy_eyes(n)
+    Inc = scipy_eyes(n*c)
+    Ic = scipy_eyes(c)
+    Icd = scipy_eyes(c*d)
+    Id = scipy_eyes(d)
+
+    Delta_P = P-P_start # (n, c)
+    S_tilde = Inc -  scipy_kron(In, One_cc) @ scipy_diag(np_vec(P.T))
+    R_tilde = scipy_diag(np_vec(P.T)) @ S_tilde
+    S = Inc -  scipy_kron(One_cc, In) @ scipy_diag(np_vec(P))
+    R = scipy_diag(np_vec(P)) @ S
+    Kdc = np_commutation_matrix(d, c, min_size_csr=MIN_SIZE_CSR)+0.0
+    T = (beta/(n*(d**0.5)))*(scipy_kron(Id, Delta_P).T + beta* Kdc @ scipy_kron(Ic, A).T @ R @ scipy_kron(V, In)) @ scipy_diag(np_vec(dg(H)))
+    tmp = scipy_kron(V, In) @ scipy_diag(np_vec(dg(H)))
+    N = (beta/(n*d))*(  scipy_diag( np_vec ( (Delta_P@V) * ddg(H) )  )  + beta * tmp.T@R@tmp )
+    
+    Kdp = np_commutation_matrix(d, p, min_size_csr=MIN_SIZE_CSR)
+    IdXKdp = scipy_kron(Id, X) @ Kdp
+    
+    i, j = 0, 0
+    # HVV & HVW
+    if require_grad["V"] :
+        tmp = scipy_kron(A, Ic)
+        Hess[i:i+c*d,j:j+c*d] = ((beta**2/n) * tmp.T @ R_tilde @ tmp  + gamma_V*Icd).toarray()  # (cd, cd)
+        j+=c*d
+        if require_grad["W"] :
+            Hess[i:i+c*d,j:j+d*p] = T @ IdXKdp  # (cd, dp)
+            j+=d*p
+        i+=c*d
+    
+    # HWV & HWW 
+    j=0
+    if require_grad["W"] :
+        if require_grad["V"] :
+            Kpd = np_commutation_matrix(p, d, min_size_csr=MIN_SIZE_CSR)+0.0
+            Hess[i:i+d*p,j:j+c*d] = Kpd @ scipy_kron (Id, X).T @ T.T # (dp, cd)
+            j+=c*d
+        Hess[i:i+d*p,j:j+d*p] = IdXKdp.T @ N @ IdXKdp + gamma_W * scipy_eyes(d*p)  # (dp, dp)
+
+    return torch.from_numpy(Hess).to(device)
+
+# END TODO
+
 # if __name__ == "__main__":
 #     print("")
 
@@ -259,7 +338,8 @@ g, dg, ddg = act["g"], act["dg"], act["ddg"]
 
 decimals = 4
 n, p, d, c = 5, 4, 3, 2
-n, p, d, c = 1, 4, 3, 2
+#n, p, d, c = 1, 4, 3, 2
+n, p, d, c = 1, 31*2, 200, 31
 alpha = 0.7
 beta = 0.5
 gamma_V, gamma_W, gamma_X = 1.0, 1.0, 1.0
@@ -281,6 +361,42 @@ hat_Y, A, H = forward(V, W, X, g, alpha, beta)
 Delta_Y = hat_Y-Y # (n, c)
 Sigma_A = ((beta**2)/(n*c)) * A.T@A # (d, d)
 Psi = ((beta * alpha)/(n*c)) * (dg(H) * (Delta_Y@V))
+
+
+
+##################################################################
+##################################################################
+
+Inc = torch.eye(n*c)
+Ic = torch.eye(c)
+In = torch.eye(n)
+Id = torch.eye(d)
+
+Hess_YT = (1/(n*c)) * Inc
+QV = beta * torch.kron(A, Ic)
+QW = alpha * beta * torch.kron(In, V) @ torch.diag(torch_vec(dg(H.T))) @ torch.kron(X, Id)
+
+print(QV.shape, QW.shape, Hess_YT.shape)
+
+GVV = QV.T @ Hess_YT @ QV # (cd, nc)(nc, nc)(nc, cd) = (cd, cd)
+GWV = QW.T @ Hess_YT @ QV # (pd, nc)(nc, nc)(nc, cd) = (pd, cd)
+GWW = QW.T @ Hess_YT @ QW # (pd, nc)(nc, nc)(nc, pd) = (pd, pd)
+
+print(GVV.shape, GWV.shape, GWW.shape)
+
+
+from plotter import plot_cdf
+import matplotlib.pyplot as plt
+Lambda = torch.linalg.eigvalsh(GVV.detach())
+plt.hist(Lambda)
+#_ = plot_cdf(Lambda)
+print(Lambda)
+plt.show()
+
+exit()
+
+##################################################################
+##################################################################
 
 # Gradient
 grad = get_gradients(require_grad, Y, V, X, W, Sigma_A, Psi, beta, gamma_V, gamma_W, gamma_X)
